@@ -11,7 +11,13 @@ from durablestack.core.constants import (
     RUN_STATUS_PENDING,
     RUN_STATUS_SUCCEEDED,
 )
-from durablestack.core.models import EnqueueResult, JobRun, RecurringJobState, RecurringRegistration
+from durablestack.core.models import (
+    EnqueueResult,
+    JobRun,
+    RecurringJobState,
+    RecurringRegistration,
+    RuntimeCommandReceipt,
+)
 from durablestack.core.utils import ensure_utc, generate_id, utc_now
 
 
@@ -25,6 +31,7 @@ class InMemoryDurableJobStore:
 
     _runs: dict[str, JobRun] = field(default_factory=dict)
     _recurring: dict[str, RecurringJobState] = field(default_factory=dict)
+    _runtime_receipts: dict[str, RuntimeCommandReceipt] = field(default_factory=dict)
 
     async def enqueue(self, job_name: str, payload_json: str | None, max_attempts: int) -> EnqueueResult:
         return await self.schedule(job_name, payload_json, utc_now(), max_attempts)
@@ -396,3 +403,125 @@ class InMemoryDurableJobStore:
 
     async def close(self) -> None:
         return
+
+    async def try_lease_runtime_command_receipt(
+        self,
+        command_id: str,
+        worker_name: str,
+        lease_duration: timedelta,
+        recorded_at_utc: datetime,
+    ) -> bool:
+        now = ensure_utc(recorded_at_utc)
+        existing = self._runtime_receipts.get(command_id)
+        if existing is None:
+            self._runtime_receipts[command_id] = RuntimeCommandReceipt(
+                command_id=command_id,
+                status="leased",
+                recorded_at_utc=now,
+                completed_at_utc=None,
+                run_id=None,
+                error_code=None,
+                error_message=None,
+                uploaded_at_utc=None,
+                lease_owner=worker_name,
+                lease_until_utc=now + lease_duration,
+            )
+            return True
+
+        if existing.status in {"succeeded", "failed"}:
+            return False
+
+        lease_expired = existing.lease_until_utc is None or existing.lease_until_utc <= now
+        if lease_expired or existing.lease_owner == worker_name:
+            self._runtime_receipts[command_id] = replace(
+                existing,
+                status="leased",
+                recorded_at_utc=now,
+                lease_owner=worker_name,
+                lease_until_utc=now + lease_duration,
+            )
+            return True
+
+        return False
+
+    async def mark_runtime_command_acknowledged(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+    ) -> bool:
+        existing = self._runtime_receipts.get(command_id)
+        if existing is None or existing.lease_owner != worker_name:
+            return False
+        self._runtime_receipts[command_id] = replace(
+            existing,
+            status="acknowledged",
+            recorded_at_utc=ensure_utc(recorded_at_utc),
+        )
+        return True
+
+    async def mark_runtime_command_succeeded(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+        completed_at_utc: datetime,
+        run_id: str | None,
+    ) -> bool:
+        existing = self._runtime_receipts.get(command_id)
+        if existing is None or existing.lease_owner != worker_name:
+            return False
+        self._runtime_receipts[command_id] = replace(
+            existing,
+            status="succeeded",
+            recorded_at_utc=ensure_utc(recorded_at_utc),
+            completed_at_utc=ensure_utc(completed_at_utc),
+            run_id=run_id,
+            lease_owner=None,
+            lease_until_utc=None,
+        )
+        return True
+
+    async def mark_runtime_command_failed(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+        completed_at_utc: datetime,
+        error_code: str | None,
+        error_message: str | None,
+    ) -> bool:
+        existing = self._runtime_receipts.get(command_id)
+        if existing is None or existing.lease_owner != worker_name:
+            return False
+        self._runtime_receipts[command_id] = replace(
+            existing,
+            status="failed",
+            recorded_at_utc=ensure_utc(recorded_at_utc),
+            completed_at_utc=ensure_utc(completed_at_utc),
+            error_code=error_code,
+            error_message=error_message,
+            lease_owner=None,
+            lease_until_utc=None,
+        )
+        return True
+
+    async def get_runtime_command_receipts(self, take: int) -> list[RuntimeCommandReceipt]:
+        rows = [
+            receipt
+            for receipt in self._runtime_receipts.values()
+            if receipt.uploaded_at_utc is None and receipt.status in {"acknowledged", "succeeded", "failed"}
+        ]
+        rows = sorted(rows, key=lambda x: x.recorded_at_utc)
+        return rows[: max(1, int(take))]
+
+    async def mark_runtime_command_receipt_uploaded(
+        self,
+        command_id: str,
+        uploaded_at_utc: datetime,
+    ) -> bool:
+        existing = self._runtime_receipts.get(command_id)
+        if existing is None:
+            return False
+        self._runtime_receipts[command_id] = replace(existing, uploaded_at_utc=ensure_utc(uploaded_at_utc))
+        return True

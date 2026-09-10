@@ -10,7 +10,14 @@ from typing import Any, cast
 
 import asyncpg
 
-from durablestack.core.models import EnqueueResult, JobRun, RecurringJobState, RecurringRegistration
+from durablestack.core.models import (
+    EnqueueResult,
+    JobRun,
+    RecurringJobState,
+    RecurringRegistration,
+    RuntimeCommandReceipt,
+    RuntimeCommandReceiptStatus,
+)
 from durablestack.core.utils import ensure_utc, generate_id
 
 from .table_names import PostgresTableNames, resolve_postgres_table_names
@@ -79,6 +86,24 @@ def _row_to_recurring(row: asyncpg.Record) -> RecurringJobState:
         allow_concurrent_runs=bool(row["allow_concurrent_runs"]),
         max_attempts=int(row["max_attempts"]),
         next_run_at_utc=ensure_utc(row["next_run_at_utc"]),
+    )
+
+
+def _row_to_receipt(row: asyncpg.Record) -> RuntimeCommandReceipt:
+    status = str(row["status"])
+    if status not in {"leased", "acknowledged", "succeeded", "failed"}:
+        raise ValueError(f"unsupported receipt status: {status}")
+    return RuntimeCommandReceipt(
+        command_id=str(row["command_id"]),
+        status=cast(RuntimeCommandReceiptStatus, status),
+        recorded_at_utc=ensure_utc(row["recorded_at_utc"]),
+        completed_at_utc=_to_utc_or_none(row["completed_at_utc"]),
+        run_id=row["run_id"],
+        error_code=row["error_code"],
+        error_message=row["error_message"],
+        uploaded_at_utc=_to_utc_or_none(row["uploaded_at_utc"]),
+        lease_owner=row["lease_owner"],
+        lease_until_utc=_to_utc_or_none(row["lease_until_utc"]),
     )
 
 
@@ -564,3 +589,153 @@ class PostgresDurableJobStore:
         if len(parts) == 2 and parts[0] == "DELETE":
             return int(parts[1])
         return 0
+
+    async def try_lease_runtime_command_receipt(
+        self,
+        command_id: str,
+        worker_name: str,
+        lease_duration: timedelta,
+        recorded_at_utc: datetime,
+    ) -> bool:
+        pool = self.pool
+        tables = self.tables
+        result = await pool.fetchrow(
+            f"""
+            insert into {_q(tables.runtime_command_receipts)}
+            (command_id, status, error_code, error_message, run_id, recorded_at_utc, completed_at_utc,
+             uploaded_at_utc, lease_owner, lease_until_utc)
+            values ($1, 'leased', null, null, null, $2::timestamptz, null, null, $3, $2::timestamptz + $4::interval)
+            on conflict (command_id)
+            do update set
+              status = 'leased',
+              recorded_at_utc = excluded.recorded_at_utc,
+              lease_owner = excluded.lease_owner,
+              lease_until_utc = excluded.lease_until_utc
+            where {_q(tables.runtime_command_receipts)}.status not in ('succeeded', 'failed')
+              and ({_q(tables.runtime_command_receipts)}.lease_until_utc is null
+                   or {_q(tables.runtime_command_receipts)}.lease_until_utc <= $2::timestamptz
+                   or {_q(tables.runtime_command_receipts)}.lease_owner = excluded.lease_owner)
+            returning command_id;
+            """,
+            command_id,
+            ensure_utc(recorded_at_utc),
+            worker_name,
+            f"{max(1, int(lease_duration.total_seconds()))} seconds",
+        )
+        return result is not None
+
+    async def mark_runtime_command_acknowledged(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+    ) -> bool:
+        pool = self.pool
+        tables = self.tables
+        result = await pool.execute(
+            f"""
+            update {_q(tables.runtime_command_receipts)}
+            set status = 'acknowledged', recorded_at_utc = $3::timestamptz
+            where command_id = $1 and lease_owner = $2;
+            """,
+            command_id,
+            worker_name,
+            ensure_utc(recorded_at_utc),
+        )
+        return _is_row_count_one(result)
+
+    async def mark_runtime_command_succeeded(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+        completed_at_utc: datetime,
+        run_id: str | None,
+    ) -> bool:
+        pool = self.pool
+        tables = self.tables
+        run_uuid = uuid.UUID(run_id) if run_id else None
+        result = await pool.execute(
+            f"""
+            update {_q(tables.runtime_command_receipts)}
+            set status = 'succeeded',
+                recorded_at_utc = $3::timestamptz,
+                completed_at_utc = $4::timestamptz,
+                run_id = $5::uuid,
+                lease_owner = null,
+                lease_until_utc = null
+            where command_id = $1 and lease_owner = $2;
+            """,
+            command_id,
+            worker_name,
+            ensure_utc(recorded_at_utc),
+            ensure_utc(completed_at_utc),
+            run_uuid,
+        )
+        return _is_row_count_one(result)
+
+    async def mark_runtime_command_failed(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+        completed_at_utc: datetime,
+        error_code: str | None,
+        error_message: str | None,
+    ) -> bool:
+        pool = self.pool
+        tables = self.tables
+        result = await pool.execute(
+            f"""
+            update {_q(tables.runtime_command_receipts)}
+            set status = 'failed',
+                recorded_at_utc = $3::timestamptz,
+                completed_at_utc = $4::timestamptz,
+                error_code = $5,
+                error_message = $6,
+                lease_owner = null,
+                lease_until_utc = null
+            where command_id = $1 and lease_owner = $2;
+            """,
+            command_id,
+            worker_name,
+            ensure_utc(recorded_at_utc),
+            ensure_utc(completed_at_utc),
+            error_code,
+            error_message,
+        )
+        return _is_row_count_one(result)
+
+    async def get_runtime_command_receipts(self, take: int) -> list[RuntimeCommandReceipt]:
+        pool = self.pool
+        tables = self.tables
+        rows = await pool.fetch(
+            f"""
+            select *
+            from {_q(tables.runtime_command_receipts)}
+            where uploaded_at_utc is null
+              and status in ('acknowledged', 'succeeded', 'failed')
+            order by recorded_at_utc asc
+            limit $1
+            """,
+            max(1, int(take)),
+        )
+        return [_row_to_receipt(row) for row in rows]
+
+    async def mark_runtime_command_receipt_uploaded(
+        self,
+        command_id: str,
+        uploaded_at_utc: datetime,
+    ) -> bool:
+        pool = self.pool
+        tables = self.tables
+        result = await pool.execute(
+            f"""
+            update {_q(tables.runtime_command_receipts)}
+            set uploaded_at_utc = $2::timestamptz
+            where command_id = $1;
+            """,
+            command_id,
+            ensure_utc(uploaded_at_utc),
+        )
+        return _is_row_count_one(result)

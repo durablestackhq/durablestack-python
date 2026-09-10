@@ -1,0 +1,30 @@
+{
+  "tenantId": "tenant-001",
+  "idempotencyKey": "worker-1:1704067200000:1",
+  "serviceName": "sample-service",
+  "events": [
+    {
+      "eventType": "job_started",
+      "eventVersion": 2,
+      "occurredAtUtc": "2026-01-01T00:00:00+00:00",
+      "runId": "run-001",
+      "jobName": "invoice.sync",
+      "attempt": 1,
+      "maxAttempts": 3,
+      "workerName": "worker-1",
+      "runtime": "Python 3.13",
+      "runtimeVersion": "3.13",
+      "durationMs": 12,
+      "payloadJson": "{\"message\":\"starting\"}"
+    },
+    {
+      "eventType": "worker_heartbeat_batch",
+      "eventVersion": 2,
+      "occurredAtUtc": "2026-01-01T00:00:05+00:00",
+      "workerName": "worker-1",
+      "runtime": "Python 3.13",
+      "runtimeVersion": "3.13",
+      "payloadJson": "{\"heartbeatCount\":2,\"firstHeartbeatAtUtc\":\"2026-01-01T00:00:01+00:00\",\"lastHeartbeatAtUtc\":\"2026-01-01T00:00:05+00:00\"}"
+    }
+  ]
+}

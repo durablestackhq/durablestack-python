@@ -7,7 +7,7 @@ import inspect
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from durablestack.core.abstractions import (
     DurableJobStore,
@@ -29,9 +29,20 @@ from durablestack.core.options import DurableStackOptions, normalize_options
 from durablestack.core.processor import DurableStackProcessor
 from durablestack.core.registry import InMemoryDurableJobRegistry
 from durablestack.core.utils import generate_id, serialize_payload, to_seconds, utc_now, with_jitter
+from durablestack.observability.ingestion import (
+    create_ingestion_eventing,
+    default_http_post,
+)
+from durablestack.observability.runtime_control import RuntimeControlSyncService
 from durablestack.providers.inmemory import InMemoryDurableJobStore
 
 _logger = logging.getLogger(__name__)
+
+
+class _ManagedService(Protocol):
+    def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,12 +71,28 @@ class DurableStackRuntimeImpl:
     _loop_task: asyncio.Task[None] | None = None
     _stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     _processor: DurableStackProcessor | None = None
+    _managed_services: list[_ManagedService] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        configured_sinks: list[DurableStackEventSink]
-        if self.sinks:
-            configured_sinks = self.sinks
-        else:
+        configured_sinks: list[DurableStackEventSink] = list(self.sinks)
+        shared_http_post = default_http_post()
+        if self.options.eventing.enabled:
+            ingestion_sink, ingestion_service = create_ingestion_eventing(
+                self.options,
+                http_post=shared_http_post,
+            )
+            configured_sinks.append(ingestion_sink)
+            self._managed_services.append(ingestion_service)
+
+            runtime_control_service = RuntimeControlSyncService(
+                store=self.store,
+                admin=self,
+                options=self.options,
+                http_post=shared_http_post,
+            )
+            self._managed_services.append(runtime_control_service)
+
+        if not configured_sinks:
             configured_sinks = [NoOpDurableStackEventSink()]
         self.sinks = configured_sinks
         self._processor = DurableStackProcessor(self.store, self._registry, self.options, self.sinks)
@@ -79,6 +106,8 @@ class DurableStackRuntimeImpl:
         self._running = True
         self._stop_event = asyncio.Event()
         await self._processor.initialize_recurring_jobs()
+        for service in self._managed_services:
+            service.start()
         self._loop_task = asyncio.create_task(self._run_loop())
 
     async def stop(self, *, drain_timeout: timedelta | None = None) -> None:
@@ -93,6 +122,8 @@ class DurableStackRuntimeImpl:
 
         await self._processor.drain_in_flight_runs(drain_timeout or self.options.shutdown_drain_timeout)
         self._stop_event.set()
+        for service in self._managed_services:
+            await service.stop()
 
     def register_job(self, name: str, handler: JobHandler, options: RegisterJobOptions | None = None) -> None:
         _validate_handler_signature(handler)
