@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-from durablestack.core.abstractions import DurableStackEventSink, DurableStackRuntime, JobHandler
+from durablestack.core.abstractions import (
+    DurableJobStore,
+    DurableStackEventSink,
+    DurableStackRuntime,
+    JobHandler,
+)
 from durablestack.core.constants import EVENT_TYPE_WORKER_HEARTBEAT, EVENT_VERSION, RUN_STATUSES
 from durablestack.core.cron import get_next_occurrence_utc, validate_time_zone
 from durablestack.core.event_sink import NoOpDurableStackEventSink
@@ -48,7 +54,7 @@ class RegisterRecurringOptions:
 class DurableStackRuntimeImpl:
     options: DurableStackOptions
     sinks: list[DurableStackEventSink] = field(default_factory=list)
-    store: InMemoryDurableJobStore = field(default_factory=InMemoryDurableJobStore)
+    store: DurableJobStore = field(default_factory=InMemoryDurableJobStore)
     _registry: InMemoryDurableJobRegistry = field(default_factory=InMemoryDurableJobRegistry)
     _running: bool = False
     _loop_task: asyncio.Task[None] | None = None
@@ -89,6 +95,7 @@ class DurableStackRuntimeImpl:
         self._stop_event.set()
 
     def register_job(self, name: str, handler: JobHandler, options: RegisterJobOptions | None = None) -> None:
+        _validate_handler_signature(handler)
         resolved_options = options or RegisterJobOptions()
         retry_behavior = _coerce_retry_behavior(
             resolved_options.retry_behavior or self.options.retry.behavior
@@ -114,6 +121,7 @@ class DurableStackRuntimeImpl:
         options: RegisterRecurringOptions | None = None,
     ) -> None:
         validate_time_zone(time_zone)
+        _validate_handler_signature(handler)
         resolved_options = options or RegisterRecurringOptions()
         retry_behavior = _coerce_retry_behavior(
             resolved_options.retry_behavior or self.options.retry.behavior
@@ -230,8 +238,11 @@ class DurableStackRuntimeImpl:
             await asyncio.sleep(delay_seconds)
 
         while self._running:
-            await self._processor.process_once(self._stop_event)
-            await self._emit_heartbeat()
+            try:
+                await self._processor.process_once(self._stop_event)
+                await self._emit_heartbeat()
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("Processor loop iteration failed: %s", str(exc))
             delay_seconds = with_jitter(
                 to_seconds(self.options.poll_interval),
                 self.options.poll_jitter_enabled,
@@ -264,7 +275,33 @@ def create_durable_stack(
     return DurableStackRuntimeImpl(options=normalize_options(options), sinks=sinks or [])
 
 
+def create_durable_stack_with_store(
+    store: DurableJobStore,
+    options: DurableStackOptions | None = None,
+    sinks: list[DurableStackEventSink] | None = None,
+) -> DurableStackRuntime:
+    """Create a runtime with an explicitly supplied store instance."""
+
+    return DurableStackRuntimeImpl(
+        options=normalize_options(options),
+        sinks=sinks or [],
+        store=store,
+    )
+
+
 def _coerce_retry_behavior(value: str) -> RetryBehavior:
     if value not in {"fixed", "exponential"}:
         raise ValueError("retry_behavior must be 'fixed' or 'exponential'")
     return cast(RetryBehavior, value)
+
+
+def _validate_handler_signature(handler: JobHandler) -> None:
+    signature = inspect.signature(handler)
+    positional = [
+        p
+        for p in signature.parameters.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in signature.parameters.values())
+    if not positional and not has_varargs:
+        raise TypeError("Job handler must accept at least one positional argument (payload)")

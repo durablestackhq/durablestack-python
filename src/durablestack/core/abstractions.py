@@ -121,6 +121,8 @@ class DurableJobStore(Protocol):
 
     async def prune_historical_runs(self, completed_before_utc: datetime, batch_size: int) -> int: ...
 
+    async def close(self) -> None: ...
+
 
 class DurableStackEventSink(Protocol):
     """Sink contract for runtime events."""
@@ -145,6 +147,9 @@ class DurableStackRuntime(Protocol):
         handler: JobHandler,
         options: Any | None = None,
     ) -> None: ...
+
+    @property
+    def store(self) -> DurableJobStore: ...
 
     async def enqueue(self, job_name: str, payload: Any = None) -> str: ...
 

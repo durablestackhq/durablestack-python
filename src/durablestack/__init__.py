@@ -8,7 +8,8 @@ from .core.constants import (
     RUNTIME_CONTROL_RECEIPT_STATUSES,
 )
 from .core.options import DurableStackOptions, normalize_options
-from .runtime.factory import create_durable_stack
+from .postgres.runtime import create_durable_stack_postgres
+from .runtime.factory import create_durable_stack, create_durable_stack_with_store
 
 __all__ = [
     "EVENT_TYPES",
@@ -18,5 +19,7 @@ __all__ = [
     "RUN_STATUSES",
     "DurableStackOptions",
     "create_durable_stack",
+    "create_durable_stack_postgres",
+    "create_durable_stack_with_store",
     "normalize_options",
 ]

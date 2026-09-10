@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -49,6 +50,7 @@ class DurableStackProcessor:
     sinks: list[DurableStackEventSink]
     _in_flight: set[asyncio.Task[None]] = field(default_factory=set)
     _next_retention_sweep_at_utc: datetime = field(default_factory=utc_now)
+    _handler_arity_cache: dict[int, int] = field(default_factory=dict)
 
     async def initialize_recurring_jobs(self) -> None:
         now = utc_now()
@@ -165,7 +167,8 @@ class DurableStackProcessor:
                 max_attempts=run.max_attempts,
                 payload=payload,
             )
-            await _invoke_handler(selected.handler, payload, context, stop_event)
+            arity = self._resolve_handler_arity(selected.handler)
+            await _invoke_handler(selected.handler, arity, payload, context, stop_event)
 
             if heartbeat_task.done() and heartbeat_task.result() is False:
                 lease_lost = True
@@ -339,50 +342,79 @@ class DurableStackProcessor:
                 _logger.warning("Event sink publish failed for event '%s': %s", event.get("eventType"), str(exc))
                 continue
 
+    def _resolve_handler_arity(self, handler: Any) -> int:
+        cache_key = id(handler)
+        cached = self._handler_arity_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        signature = inspect.signature(handler)
+        positional = [
+            p
+            for p in signature.parameters.values()
+            if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        has_varargs = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL for p in signature.parameters.values()
+        )
+
+        max_positional = 999 if has_varargs else len(positional)
+        if max_positional >= 3:
+            arity = 3
+        elif max_positional == 2:
+            arity = 2
+        elif max_positional == 1:
+            arity = 1
+        else:
+            raise TypeError("Job handler must accept at least one positional argument (payload)")
+
+        self._handler_arity_cache[cache_key] = arity
+        return arity
+
 
 async def _invoke_handler(
     handler: Any,
+    arity: int,
     payload: Any,
     context: JobContext,
     stop_event: asyncio.Event,
 ) -> Any:
     if asyncio.iscoroutinefunction(handler):
-        return await _invoke_handler_fallback(handler, payload, context, stop_event)
+        return await _invoke_async_handler(handler, arity, payload, context, stop_event)
 
     return await asyncio.to_thread(
-        _invoke_sync_handler_fallback,
+        _invoke_sync_handler,
         handler,
+        arity,
         payload,
         context,
         stop_event,
     )
 
 
-async def _invoke_handler_fallback(
+async def _invoke_async_handler(
     handler: Any,
+    arity: int,
     payload: Any,
     context: JobContext,
     stop_event: asyncio.Event,
 ) -> Any:
-    try:
+    if arity >= 3:
         return await handler(payload, context, stop_event)
-    except TypeError:
-        try:
-            return await handler(payload, context)
-        except TypeError:
-            return await handler(payload)
+    if arity == 2:
+        return await handler(payload, context)
+    return await handler(payload)
 
 
-def _invoke_sync_handler_fallback(
+def _invoke_sync_handler(
     handler: Any,
+    arity: int,
     payload: Any,
     context: JobContext,
     stop_event: asyncio.Event,
 ) -> Any:
-    try:
+    if arity >= 3:
         return handler(payload, context, stop_event)
-    except TypeError:
-        try:
-            return handler(payload, context)
-        except TypeError:
-            return handler(payload)
+    if arity == 2:
+        return handler(payload, context)
+    return handler(payload)

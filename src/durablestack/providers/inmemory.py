@@ -393,3 +393,6 @@ class InMemoryDurableJobStore:
             del self._runs[run.run_id]
             deleted += 1
         return deleted
+
+    async def close(self) -> None:
+        return
