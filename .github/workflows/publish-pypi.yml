@@ -44,8 +44,30 @@ jobs:
         run: |
           python -c "import pathlib, tomllib; data = tomllib.loads(pathlib.Path('pyproject.toml').read_text(encoding='utf-8')); print('version=' + data['project']['version'])" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: Check version changed from previous main commit
+        id: version_check
+        shell: pwsh
+        run: |
+          $baseRef = "${{ github.event.before }}"
+          if ([string]::IsNullOrWhiteSpace($baseRef) -or $baseRef -eq "0000000000000000000000000000000000000000") {
+            "changed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "No valid base ref available (first push or manual run); publish remains allowed."
+            exit 0
+          }
+          $output = python scripts/check_version_bump.py --base-ref $baseRef --pyproject pyproject.toml
+          $output
+          if ($LASTEXITCODE -ne 0) {
+            throw "Version check script failed"
+          }
+          if ($output -match "version_changed=true") {
+            "changed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            "changed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
       - name: Check if version exists on PyPI
         id: pypi_check
+        if: steps.version_check.outputs.changed == 'true'
         shell: pwsh
         run: |
           $url = "https://pypi.org/pypi/durablestack/${{ steps.version.outputs.version }}/json"
@@ -69,7 +91,7 @@ jobs:
           }
 
       - name: Publish to PyPI
-        if: steps.pypi_check.outputs.exists != 'true'
+        if: steps.version_check.outputs.changed == 'true' && steps.pypi_check.outputs.exists != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
@@ -78,7 +100,9 @@ jobs:
       - name: Publish summary
         shell: pwsh
         run: |
-          if ('${{ steps.pypi_check.outputs.exists }}' -eq 'true') {
+          if ('${{ steps.version_check.outputs.changed }}' -ne 'true') {
+            "No publish: version did not change in pyproject.toml." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } elseif ('${{ steps.pypi_check.outputs.exists }}' -eq 'true') {
             "No publish: durablestack ${{ steps.version.outputs.version }} already exists." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           } else {
             "Published durablestack ${{ steps.version.outputs.version }} to PyPI." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
