@@ -9,10 +9,14 @@ from .core.constants import (
 )
 from .core.options import DurableStackOptions, normalize_options
 from .mysql.runtime import create_durable_stack_mysql
+from .mysql.types import MySqlDurableStackOptions
 from .postgres.runtime import create_durable_stack_postgres
+from .postgres.types import PostgresDurableStackOptions
 from .runtime.factory import create_durable_stack, create_durable_stack_with_store
 from .sqlite.runtime import create_durable_stack_sqlite
+from .sqlite.types import SqliteDurableStackOptions
 from .sqlserver.runtime import create_durable_stack_sqlserver
+from .sqlserver.types import SqlServerDurableStackOptions
 
 __all__ = [
     "EVENT_TYPES",
@@ -21,6 +25,10 @@ __all__ = [
     "RUNTIME_CONTROL_RECEIPT_STATUSES",
     "RUN_STATUSES",
     "DurableStackOptions",
+    "MySqlDurableStackOptions",
+    "PostgresDurableStackOptions",
+    "SqlServerDurableStackOptions",
+    "SqliteDurableStackOptions",
     "create_durable_stack",
     "create_durable_stack_mysql",
     "create_durable_stack_postgres",

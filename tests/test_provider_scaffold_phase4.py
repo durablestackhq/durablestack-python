@@ -59,14 +59,14 @@ def test_sqlserver_options_requires_connection_string() -> None:
 
 
 @pytest.mark.asyncio
-async def test_mysql_runtime_factory_is_scaffolded_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
-        await create_durable_stack_mysql(MySqlDurableStackOptions(connection_string="mysql://placeholder"))
+async def test_mysql_runtime_factory_requires_database_in_connection_string() -> None:
+    with pytest.raises(ValueError):
+        await create_durable_stack_mysql(MySqlDurableStackOptions(connection_string="mysql://localhost"))
 
 
 @pytest.mark.asyncio
-async def test_sqlserver_runtime_factory_is_scaffolded_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
+async def test_sqlserver_runtime_factory_requires_odbc_style_connection_string() -> None:
+    with pytest.raises(ValueError):
         await create_durable_stack_sqlserver(
             SqlServerDurableStackOptions(connection_string="sqlserver://placeholder")
         )

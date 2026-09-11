@@ -6,8 +6,8 @@ This document captures provider parity status and migration/locking expectations
 
 - PostgreSQL: implemented with migrations, schema probes, and lease-fenced semantics.
 - SQLite: implemented with migrations, schema probes, and single-writer transaction locking (`BEGIN IMMEDIATE`).
-- MySQL: scaffolded (options, table-name resolver, runtime factory placeholder).
-- SQL Server: scaffolded (options, table-name resolver, runtime factory placeholder).
+- MySQL: implemented with migrations, schema probes, and lease-fenced semantics.
+- SQL Server: implemented with migrations, schema probes, and lease-fenced semantics.
 
 ## Shared provider contract expectations
 
@@ -29,13 +29,17 @@ All providers must preserve these behaviors:
   - Migration lock: transactional lock via `BEGIN IMMEDIATE`.
   - Claim/materialization paths: `BEGIN IMMEDIATE` guarded read-update sequences.
   - Concurrency scope: safe for multi-worker processes sharing one DB file with SQLite single-writer model.
-- MySQL (target):
-  - migration lock strategy and claim/update fence semantics to match .NET/Node intent.
-- SQL Server (target):
-  - migration lock strategy and claim/update fence semantics to match .NET/Node intent.
+- MySQL:
+  - Migration lock: named lock via `GET_LOCK` / `RELEASE_LOCK` keyed by table prefix.
+  - Claim path: `FOR UPDATE SKIP LOCKED` candidate selection + fenced updates in transactions.
+- SQL Server:
+  - Migration lock: `sp_getapplock` with transaction-scoped exclusive lock keyed by table prefix.
+  - Claim path: `UPDLOCK` + `READPAST` row selection and fenced updates.
 
 ## Test coverage in repo
 
 - Postgres integration: `tests/test_postgres_integration.py` (env-gated).
 - SQLite integration: `tests/test_sqlite_integration.py`.
+- MySQL integration: `tests/test_mysql_integration.py` (env-gated).
+- SQL Server integration: `tests/test_sqlserver_integration.py` (env-gated).
 - Phase 4 provider scaffolds: `tests/test_provider_scaffold_phase4.py`.

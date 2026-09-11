@@ -32,7 +32,11 @@ async def create_durable_stack_postgres(
     """Create a DurableStack runtime backed by PostgreSQL and run migrations."""
 
     store = PostgresDurableJobStore(postgres)
-    await store.open()
-    await migrate_postgres(store.pool, postgres.table_prefix)
-    runtime = create_durable_stack_with_store(store=store, options=options, sinks=sinks)
-    return PostgresRuntimeHandle(runtime=runtime, store=store)
+    try:
+        await store.open()
+        await migrate_postgres(store.pool, postgres.table_prefix)
+        runtime = create_durable_stack_with_store(store=store, options=options, sinks=sinks)
+        return PostgresRuntimeHandle(runtime=runtime, store=store)
+    except Exception:
+        await store.close()
+        raise

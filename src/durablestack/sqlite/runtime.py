@@ -31,6 +31,10 @@ async def create_durable_stack_sqlite(
     """Create a DurableStack runtime backed by SQLite and run migrations."""
 
     store = SqliteDurableJobStore(sqlite)
-    await store.open()
-    runtime = create_durable_stack_with_store(store=store, options=options, sinks=sinks)
-    return SqliteRuntimeHandle(runtime=runtime, store=store)
+    try:
+        await store.open()
+        runtime = create_durable_stack_with_store(store=store, options=options, sinks=sinks)
+        return SqliteRuntimeHandle(runtime=runtime, store=store)
+    except Exception:
+        await store.close()
+        raise
