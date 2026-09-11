@@ -23,6 +23,7 @@ Observability note:
 - `ARCHITECTURE.md`
 - `CONTRACTS.md`
 - `PROVIDER_PARITY.md`
+- `RELEASING.md`
 
 ## Local development
 
