@@ -49,6 +49,7 @@ Publish behavior:
 
 1. Push to `main` with an updated `project.version` in `pyproject.toml`.
 2. Workflow runs quality gates, build, and `twine check`.
-3. Workflow checks whether that exact version already exists on PyPI.
-4. If version is new, it publishes `dist/*` to PyPI.
-5. If version already exists, it exits without publishing.
+3. Workflow checks whether `pyproject.toml` version changed from the previous `main` commit.
+4. If version changed, workflow checks whether that exact version already exists on PyPI.
+5. If version is new, it publishes `dist/*` to PyPI.
+6. If version did not change or already exists, it exits without publishing.
