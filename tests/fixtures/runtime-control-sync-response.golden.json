@@ -1,0 +1,23 @@
+{
+  "commands": [
+    {
+      "commandId": "cmd-100",
+      "commandType": "set_schedule_enabled",
+      "payloadJson": "{\"jobName\":\"invoice.sync\",\"enabled\":true}",
+      "issuedAtUtc": "2026-01-01T00:00:00+00:00"
+    },
+    {
+      "CommandId": "cmd-101",
+      "CommandType": "run_schedule_now",
+      "PayloadJson": "{\"JobName\":\"invoice.sync\"}",
+      "IssuedAtUtc": "2026-01-01T00:01:00+00:00",
+      "ExpiresAtUtc": "2026-01-01T01:01:00+00:00"
+    },
+    {
+      "commandId": "cmd-102",
+      "commandType": "update_schedule_cron",
+      "payloadJson": "{\"jobName\":\"invoice.sync\",\"cronExpression\":\"*/15 * * * *\",\"timeZone\":\"UTC\"}",
+      "issuedAtUtc": "2026-01-01T00:02:00+00:00"
+    }
+  ]
+}

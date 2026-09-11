@@ -8,6 +8,12 @@ from datetime import datetime
 from typing import Literal, TypeAlias
 
 RetryBehavior: TypeAlias = Literal["fixed", "exponential"]
+RuntimeCommandType: TypeAlias = Literal[
+    "set_schedule_enabled",
+    "run_schedule_now",
+    "update_schedule_cron",
+]
+RuntimeCommandReceiptStatus: TypeAlias = Literal["leased", "acknowledged", "succeeded", "failed"]
 
 JsonPrimitive: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonPrimitive | dict[str, "JsonValue"] | list["JsonValue"]
@@ -102,3 +108,30 @@ class RecurringRegistration:
     max_attempts: int
     retry_behavior: RetryBehavior
     retry_initial_delay_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCommandEnvelope:
+    """Runtime-control command envelope."""
+
+    command_id: str
+    command_type: RuntimeCommandType
+    payload_json: str
+    issued_at_utc: datetime
+    expires_at_utc: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCommandReceipt:
+    """Runtime-control command receipt persisted locally."""
+
+    command_id: str
+    status: RuntimeCommandReceiptStatus
+    recorded_at_utc: datetime
+    completed_at_utc: datetime | None
+    run_id: str | None
+    error_code: str | None
+    error_message: str | None
+    uploaded_at_utc: datetime | None
+    lease_owner: str | None
+    lease_until_utc: datetime | None

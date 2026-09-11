@@ -22,6 +22,9 @@ classifiers = [
   "Topic :: Software Development :: Libraries"
 ]
 dependencies = [
+  "asyncpg>=0.30.0",
+  "pymysql>=1.1.1",
+  "pyodbc>=5.1.0",
   "croniter>=3.0.3",
   "tzdata>=2024.1"
 ]
@@ -51,6 +54,10 @@ strict = true
 packages = ["durablestack"]
 [[tool.mypy.overrides]]
 module = ["croniter"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["asyncpg"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]

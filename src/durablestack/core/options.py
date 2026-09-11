@@ -28,6 +28,31 @@ class RecurringOptions:
 
 
 @dataclass(frozen=True, slots=True)
+class EventingOptions:
+    """Hosted ingestion/runtime-control transport options."""
+
+    enabled: bool = True
+    tenant_id: str | None = None
+    client_secret: str | None = None
+    ingestion_api_base_url: str = "https://api.durablestack.com"
+    ingestion_path: str = "/v1/runtime/telemetry/ingest"
+    ingestion_flush_interval: timedelta = timedelta(seconds=5)
+    ingestion_max_batch_size: int = 200
+    ingestion_max_retry_attempts: int = 5
+    ingestion_max_request_body_bytes: int = 1_000_000
+    ingestion_sync_jitter_enabled: bool = True
+    ingestion_sync_jitter_ratio: float = 0.2
+    service_name: str | None = None
+    runtime_control_enabled: bool = True
+    runtime_control_sync_path: str = "/v1/runtime/control/sync"
+    runtime_control_sync_interval: timedelta = timedelta(seconds=10)
+    runtime_control_sync_jitter_enabled: bool = True
+    runtime_control_sync_jitter_ratio: float = 0.2
+    runtime_control_max_receipt_upload: int = 200
+    runtime_control_command_lease_duration: timedelta = timedelta(seconds=30)
+
+
+@dataclass(frozen=True, slots=True)
 class DurableStackOptions:
     """Top-level runtime options."""
 
@@ -45,6 +70,7 @@ class DurableStackOptions:
     retention_delete_batch_size: int = 100
     retry: RetryOptions = RetryOptions()
     recurring: RecurringOptions = RecurringOptions()
+    eventing: EventingOptions = EventingOptions()
     include_error_detail_in_events: bool = False
 
 
@@ -79,6 +105,24 @@ def normalize_options(options: DurableStackOptions | None) -> DurableStackOption
         raise ValueError("retry.max_delay must be greater than 0")
     if value.retry.jitter_ratio < 0:
         raise ValueError("retry.jitter_ratio cannot be negative")
+    if value.eventing.ingestion_flush_interval <= timedelta(0):
+        raise ValueError("eventing.ingestion_flush_interval must be greater than 0")
+    if value.eventing.ingestion_max_batch_size <= 0:
+        raise ValueError("eventing.ingestion_max_batch_size must be greater than 0")
+    if value.eventing.ingestion_max_retry_attempts <= 0:
+        raise ValueError("eventing.ingestion_max_retry_attempts must be greater than 0")
+    if value.eventing.ingestion_max_request_body_bytes <= 0:
+        raise ValueError("eventing.ingestion_max_request_body_bytes must be greater than 0")
+    if value.eventing.ingestion_sync_jitter_ratio < 0:
+        raise ValueError("eventing.ingestion_sync_jitter_ratio cannot be negative")
+    if value.eventing.runtime_control_sync_interval <= timedelta(0):
+        raise ValueError("eventing.runtime_control_sync_interval must be greater than 0")
+    if value.eventing.runtime_control_sync_jitter_ratio < 0:
+        raise ValueError("eventing.runtime_control_sync_jitter_ratio cannot be negative")
+    if value.eventing.runtime_control_max_receipt_upload <= 0:
+        raise ValueError("eventing.runtime_control_max_receipt_upload must be greater than 0")
+    if value.eventing.runtime_control_command_lease_duration <= timedelta(0):
+        raise ValueError("eventing.runtime_control_command_lease_duration must be greater than 0")
     if value.retry.behavior not in {"fixed", "exponential"}:
         raise ValueError("retry.behavior must be 'fixed' or 'exponential'")
     if value.recurring.catch_up_policy not in {"skip_missed", "catch_up"}:

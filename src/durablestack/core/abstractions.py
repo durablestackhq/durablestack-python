@@ -12,6 +12,7 @@ from .models import (
     JobRun,
     RecurringJobState,
     RecurringRegistration,
+    RuntimeCommandReceipt,
 )
 
 JobHandler = Callable[..., Any | Awaitable[Any]]
@@ -121,6 +122,67 @@ class DurableJobStore(Protocol):
 
     async def prune_historical_runs(self, completed_before_utc: datetime, batch_size: int) -> int: ...
 
+    async def try_lease_runtime_command_receipt(
+        self,
+        command_id: str,
+        worker_name: str,
+        lease_duration: timedelta,
+        recorded_at_utc: datetime,
+    ) -> bool: ...
+
+    async def mark_runtime_command_acknowledged(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+    ) -> bool: ...
+
+    async def mark_runtime_command_succeeded(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+        completed_at_utc: datetime,
+        run_id: str | None,
+    ) -> bool: ...
+
+    async def mark_runtime_command_failed(
+        self,
+        command_id: str,
+        worker_name: str,
+        recorded_at_utc: datetime,
+        completed_at_utc: datetime,
+        error_code: str | None,
+        error_message: str | None,
+    ) -> bool: ...
+
+    async def get_runtime_command_receipts(self, take: int) -> list[RuntimeCommandReceipt]: ...
+
+    async def mark_runtime_command_receipt_uploaded(
+        self,
+        command_id: str,
+        uploaded_at_utc: datetime,
+    ) -> bool: ...
+
+    async def close(self) -> None: ...
+
+
+class RuntimeControlAdmin(Protocol):
+    """Runtime control admin capabilities used by control sync service."""
+
+    async def list_scheduled_jobs(self, include_disabled: bool = True) -> list[RecurringJobState]: ...
+
+    async def set_scheduled_job_enabled(self, job_name: str, enabled: bool) -> bool: ...
+
+    async def update_scheduled_job_cron(
+        self,
+        job_name: str,
+        cron_expression: str,
+        time_zone: str,
+    ) -> bool: ...
+
+    async def run_scheduled_job_now(self, job_name: str) -> str | None: ...
+
 
 class DurableStackEventSink(Protocol):
     """Sink contract for runtime events."""
@@ -145,6 +207,9 @@ class DurableStackRuntime(Protocol):
         handler: JobHandler,
         options: Any | None = None,
     ) -> None: ...
+
+    @property
+    def store(self) -> DurableJobStore: ...
 
     async def enqueue(self, job_name: str, payload: Any = None) -> str: ...
 

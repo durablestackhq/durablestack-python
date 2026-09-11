@@ -1,0 +1,28 @@
+{
+  "tenantId": "tenant-001",
+  "workerName": "worker-1",
+  "runtime": "Python 3.13",
+  "runtimeVersion": "3.13",
+  "sentAtUtc": "2026-01-01T00:00:10+00:00",
+  "snapshotItems": [
+    {
+      "jobName": "invoice.sync",
+      "cronExpression": "0 */5 * * *",
+      "timeZone": "UTC",
+      "enabled": true,
+      "nextRunAtUtc": "2026-01-01T00:05:00+00:00",
+      "maxAttempts": 3,
+      "allowConcurrentRuns": false,
+      "lastSeenAtUtc": "2026-01-01T00:00:10+00:00"
+    }
+  ],
+  "receipts": [
+    {
+      "commandId": "cmd-001",
+      "status": "succeeded",
+      "recordedAtUtc": "2026-01-01T00:00:09+00:00",
+      "completedAtUtc": "2026-01-01T00:00:10+00:00",
+      "runId": "run-001"
+    }
+  ]
+}
