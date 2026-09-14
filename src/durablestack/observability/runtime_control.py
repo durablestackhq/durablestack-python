@@ -400,10 +400,11 @@ def _safe_json_object(value: str) -> dict[str, Any]:
     return {}
 
 
-def _optional_non_empty_string(value: str | None) -> str | None:
+def _optional_non_empty_string(value: object | None) -> str | None:
     if value is None:
         return None
-    trimmed = value.strip()
+    text = value if isinstance(value, str) else str(value)
+    trimmed = text.strip()
     if trimmed == "":
         return None
     return trimmed
