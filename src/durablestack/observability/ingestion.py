@@ -160,6 +160,7 @@ class IngestionEventSyncService:
                         headers={
                             "Content-Type": "application/json",
                             "Accept": "application/json",
+                            "User-Agent": f"DurableStack-Python/{self.runtime_version}",
                             "X-DurableStack-TenantId": self.options.eventing.tenant_id or "",
                             "X-DurableStack-ClientSecret": self.options.eventing.client_secret or "",
                             "X-Correlation-Id": generate_id().replace("-", ""),
