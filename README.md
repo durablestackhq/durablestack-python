@@ -1,6 +1,6 @@
 # DurableStack for Python
 
-![DurableStack Logo](https://raw.githubusercontent.com/durablestack/durable-stack/main/durablestack-dotnet/ds-nuget-logo.png)
+![DurableStack Logo](https://docs.durablestack.com/images/branding/logo-light-28.png)
 
 DurableStack provides reliable background jobs and recurring scheduling for Python applications.
 
@@ -22,12 +22,20 @@ async def send_email(payload: object) -> None:
     print("sending", payload)
 
 
+async def cleanup_cache(payload: object) -> None:
+    print("cleanup", payload)
+
+
 runtime = create_durable_stack()
 runtime.register_job("send-email", send_email)
+runtime.register_recurring("cleanup-cache", "*/5 * * * *", "UTC", cleanup_cache)
 
 await runtime.start()
 run_id = await runtime.enqueue("send-email", {"to": "hello@example.com"})
 print("enqueued", run_id)
+
+recurring_run_id = await runtime.run_scheduled_job_now("cleanup-cache")
+print("recurring run", recurring_run_id)
 
 await runtime.stop()
 ```

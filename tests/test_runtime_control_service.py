@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import platform
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -57,7 +58,7 @@ async def test_runtime_control_retries_transient_and_stops_on_success() -> None:
     assert len(fake.calls) == 3
     assert fake.calls[-1].headers["X-DurableStack-TenantId"] == "tenant-1"
     assert fake.calls[-1].headers["X-DurableStack-ClientSecret"] == "secret-1"
-    assert fake.calls[-1].headers["User-Agent"] == "DurableStack-Python/unknown"
+    assert fake.calls[-1].headers["User-Agent"] == f"DurableStack-Python/{platform.python_version()}"
 
 
 @pytest.mark.asyncio
@@ -163,6 +164,50 @@ async def test_runtime_control_upload_marks_receipts_as_uploaded() -> None:
 
     receipts = await store.get_runtime_command_receipts(10)
     assert len(receipts) == 0
+
+
+@pytest.mark.asyncio
+async def test_runtime_control_normalizes_blank_receipt_fields_before_validation() -> None:
+    store = InMemoryDurableJobStore()
+    runtime = create_durable_stack(
+        options=DurableStackOptions(
+            worker_name="w-ctrl",
+            eventing=EventingOptions(
+                tenant_id="tenant-1",
+                client_secret="secret-1",
+                ingestion_api_base_url="https://example.com",
+                runtime_control_enabled=False,
+            ),
+        )
+    )
+    now = datetime.now(tz=UTC)
+    leased = await store.try_lease_runtime_command_receipt(
+        "cmd-blank-run-id",
+        "w-ctrl",
+        timedelta(seconds=30),
+        now,
+    )
+    assert leased
+    ack = await store.mark_runtime_command_acknowledged("cmd-blank-run-id", "w-ctrl", now)
+    assert ack
+    succeeded = await store.mark_runtime_command_succeeded(
+        "cmd-blank-run-id",
+        "w-ctrl",
+        now,
+        now,
+        "",
+    )
+    assert succeeded
+
+    fake = FakeHttpPost(statuses=[200], body_text='{"commands": []}')
+    service = RuntimeControlSyncService(store=store, admin=runtime, options=runtime.options, http_post=fake)
+
+    await service.sync_once()
+
+    assert len(fake.calls) == 1
+    payload = json.loads(fake.calls[0].body)
+    assert payload["receipts"][0]["commandId"] == "cmd-blank-run-id"
+    assert payload["receipts"][0]["runId"] is None
 
 
 @pytest.mark.asyncio

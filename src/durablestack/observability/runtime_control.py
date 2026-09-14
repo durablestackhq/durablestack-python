@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+import platform
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urljoin
@@ -30,6 +31,21 @@ def _response_snippet(body_text: str, max_len: int = 300) -> str:
     return text[:max_len] + "..."
 
 
+def _normalize_runtime_version(value: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        return "unknown"
+    return trimmed.removeprefix("v")
+
+
+def _default_python_runtime_version() -> str:
+    return platform.python_version()
+
+
+def _default_runtime_name(runtime_version: str) -> str:
+    return f"Python {_normalize_runtime_version(runtime_version)}"
+
+
 @dataclass(slots=True)
 class RuntimeControlSyncService:
     """Synchronizes schedule snapshots/receipts and executes inbound commands."""
@@ -38,8 +54,8 @@ class RuntimeControlSyncService:
     admin: RuntimeControlAdmin
     options: DurableStackOptions
     http_post: HttpPost
-    runtime_name: str = "Python"
-    runtime_version: str = "unknown"
+    runtime_name: str = field(default_factory=lambda: _default_runtime_name(_default_python_runtime_version()))
+    runtime_version: str = field(default_factory=lambda: _normalize_runtime_version(_default_python_runtime_version()))
     _running: bool = False
     _loop_task: asyncio.Task[None] | None = None
 
@@ -96,9 +112,9 @@ class RuntimeControlSyncService:
                     "status": row.status,
                     "recordedAtUtc": row.recorded_at_utc.isoformat(),
                     "completedAtUtc": row.completed_at_utc.isoformat() if row.completed_at_utc else None,
-                    "runId": row.run_id,
-                    "errorCode": row.error_code,
-                    "errorMessage": row.error_message,
+                    "runId": _optional_non_empty_string(row.run_id),
+                    "errorCode": _optional_non_empty_string(row.error_code),
+                    "errorMessage": _optional_non_empty_string(row.error_message),
                 }
                 for row in receipts
             ],
@@ -382,6 +398,15 @@ def _safe_json_object(value: str) -> dict[str, Any]:
     if isinstance(parsed, dict):
         return parsed
     return {}
+
+
+def _optional_non_empty_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if trimmed == "":
+        return None
+    return trimmed
 
 
 def _pick_string(obj: dict[str, Any], camel: str, pascal: str) -> str | None:

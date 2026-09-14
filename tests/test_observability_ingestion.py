@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import platform
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -62,7 +63,7 @@ async def test_ingestion_uses_auth_headers_and_retries_transient_failures() -> N
     last = fake.calls[-1]
     assert last.headers["X-DurableStack-TenantId"] == "tenant-1"
     assert last.headers["X-DurableStack-ClientSecret"] == "secret-1"
-    assert last.headers["User-Agent"] == "DurableStack-Python/unknown"
+    assert last.headers["User-Agent"] == f"DurableStack-Python/{platform.python_version()}"
     assert "X-Correlation-Id" in last.headers
 
 

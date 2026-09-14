@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import platform
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Protocol, cast
@@ -76,10 +77,14 @@ class DurableStackRuntimeImpl:
     def __post_init__(self) -> None:
         configured_sinks: list[DurableStackEventSink] = list(self.sinks)
         shared_http_post = default_http_post()
+        runtime_version = platform.python_version()
+        runtime_name = f"Python {runtime_version}"
         if self.options.eventing.enabled:
             ingestion_sink, ingestion_service = create_ingestion_eventing(
                 self.options,
                 http_post=shared_http_post,
+                runtime_name=runtime_name,
+                runtime_version=runtime_version,
             )
             configured_sinks.append(ingestion_sink)
             self._managed_services.append(ingestion_service)
@@ -89,6 +94,8 @@ class DurableStackRuntimeImpl:
                 admin=self,
                 options=self.options,
                 http_post=shared_http_post,
+                runtime_name=runtime_name,
+                runtime_version=runtime_version,
             )
             self._managed_services.append(runtime_control_service)
 
