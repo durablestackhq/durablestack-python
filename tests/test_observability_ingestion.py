@@ -62,6 +62,7 @@ async def test_ingestion_uses_auth_headers_and_retries_transient_failures() -> N
     last = fake.calls[-1]
     assert last.headers["X-DurableStack-TenantId"] == "tenant-1"
     assert last.headers["X-DurableStack-ClientSecret"] == "secret-1"
+    assert last.headers["User-Agent"] == "DurableStack-Python/unknown"
     assert "X-Correlation-Id" in last.headers
 
 

@@ -57,6 +57,7 @@ async def test_runtime_control_retries_transient_and_stops_on_success() -> None:
     assert len(fake.calls) == 3
     assert fake.calls[-1].headers["X-DurableStack-TenantId"] == "tenant-1"
     assert fake.calls[-1].headers["X-DurableStack-ClientSecret"] == "secret-1"
+    assert fake.calls[-1].headers["User-Agent"] == "DurableStack-Python/unknown"
 
 
 @pytest.mark.asyncio
