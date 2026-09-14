@@ -23,7 +23,17 @@ from .url_validation import assert_secure_endpoint
 _logger = logging.getLogger(__name__)
 
 
+def _response_snippet(body_text: str, max_len: int = 300) -> str:
+    text = body_text.strip()
+    if text == "":
+        return ""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
 def default_http_post() -> HttpPost:
+    import urllib.error
     import urllib.request
 
     async def _post(request: HttpPostRequest, timeout_seconds: float) -> HttpResponseData:
@@ -34,9 +44,13 @@ def default_http_post() -> HttpPost:
                 headers=dict(request.headers),
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
-                body = response.read().decode("utf-8")
-                return HttpResponseData(status=response.status, body_text=body)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
+                    body = response.read().decode("utf-8")
+                    return HttpResponseData(status=response.status, body_text=body)
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8") if exc.fp is not None else ""
+                return HttpResponseData(status=int(exc.code), body_text=body)
 
         return await asyncio.to_thread(_sync_post)
 
@@ -164,7 +178,15 @@ class IngestionEventSyncService:
             if 200 <= response.status < 300:
                 return
             if response.status in {401, 403}:
-                _logger.warning("Ingestion authorization failed with status %s", response.status)
+                snippet = _response_snippet(response.body_text)
+                if snippet:
+                    _logger.warning(
+                        "Ingestion authorization failed with status %s: %s",
+                        response.status,
+                        snippet,
+                    )
+                else:
+                    _logger.warning("Ingestion authorization failed with status %s", response.status)
                 return
             if not is_transient_status(response.status) or attempt >= max_attempts:
                 _logger.warning("Ingestion sync failed with status %s", response.status)

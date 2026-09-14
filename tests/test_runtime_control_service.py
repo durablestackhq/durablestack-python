@@ -164,6 +164,96 @@ async def test_runtime_control_upload_marks_receipts_as_uploaded() -> None:
     assert len(receipts) == 0
 
 
+@pytest.mark.asyncio
+async def test_runtime_control_records_failed_receipt_for_blank_command_type() -> None:
+    runtime = create_durable_stack(
+        options=DurableStackOptions(
+            worker_name="w-ctrl",
+            eventing=EventingOptions(
+                tenant_id="tenant-1",
+                client_secret="secret-1",
+                ingestion_api_base_url="https://example.com",
+                runtime_control_enabled=False,
+            ),
+        )
+    )
+    store = runtime.store
+
+    service = RuntimeControlSyncService(
+        store=store,
+        admin=runtime,
+        options=runtime.options,
+        http_post=FakeHttpPost(
+            statuses=[200],
+            body_text=json.dumps(
+                {
+                    "commands": [
+                        {
+                            "commandId": "cmd-blank-type",
+                            "commandType": "   ",
+                            "payloadJson": "{}",
+                            "issuedAtUtc": datetime.now(tz=UTC).isoformat(),
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+
+    await service.sync_once()
+
+    receipts = await store.get_runtime_command_receipts(10)
+    assert len(receipts) == 1
+    assert receipts[0].command_id == "cmd-blank-type"
+    assert receipts[0].status == "failed"
+    assert receipts[0].error_code == "invalid_command_type"
+
+
+@pytest.mark.asyncio
+async def test_runtime_control_records_failed_receipt_for_unsupported_command_type() -> None:
+    runtime = create_durable_stack(
+        options=DurableStackOptions(
+            worker_name="w-ctrl",
+            eventing=EventingOptions(
+                tenant_id="tenant-1",
+                client_secret="secret-1",
+                ingestion_api_base_url="https://example.com",
+                runtime_control_enabled=False,
+            ),
+        )
+    )
+    store = runtime.store
+
+    service = RuntimeControlSyncService(
+        store=store,
+        admin=runtime,
+        options=runtime.options,
+        http_post=FakeHttpPost(
+            statuses=[200],
+            body_text=json.dumps(
+                {
+                    "commands": [
+                        {
+                            "commandId": "cmd-unsupported",
+                            "commandType": "pause_worker",
+                            "payloadJson": "{}",
+                            "issuedAtUtc": datetime.now(tz=UTC).isoformat(),
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+
+    await service.sync_once()
+
+    receipts = await store.get_runtime_command_receipts(10)
+    assert len(receipts) == 1
+    assert receipts[0].command_id == "cmd-unsupported"
+    assert receipts[0].status == "failed"
+    assert receipts[0].error_code == "unsupported_command_type"
+
+
 def test_parse_response_accepts_runtime_control_golden_fixture() -> None:
     payload = _load_fixture("runtime-control-sync-response.golden.json")
     commands = RuntimeControlSyncService.parse_response(json.dumps(payload))

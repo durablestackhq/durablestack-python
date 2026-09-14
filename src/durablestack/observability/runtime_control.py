@@ -14,21 +14,20 @@ from durablestack.core.abstractions import DurableJobStore, RuntimeControlAdmin
 from durablestack.core.models import RuntimeCommandEnvelope, RuntimeCommandType
 from durablestack.core.options import DurableStackOptions
 from durablestack.core.utils import generate_id, with_jitter
-from durablestack.validators.contracts import (
-    validate_runtime_control_sync_request,
-    validate_runtime_control_sync_response,
-)
+from durablestack.validators.contracts import validate_runtime_control_sync_request
 
 from .http import HttpPost, HttpPostRequest, HttpResponseData, is_transient_status
 from .url_validation import assert_secure_endpoint
 
 _logger = logging.getLogger(__name__)
 
-_SUPPORTED_COMMAND_TYPES: set[str] = {
-    "set_schedule_enabled",
-    "run_schedule_now",
-    "update_schedule_cron",
-}
+def _response_snippet(body_text: str, max_len: int = 300) -> str:
+    text = body_text.strip()
+    if text == "":
+        return ""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
 
 
 @dataclass(slots=True)
@@ -170,6 +169,14 @@ class RuntimeControlSyncService:
                 )
 
     async def _execute_command(self, command: RuntimeCommandEnvelope) -> dict[str, Any]:
+        command_type = command.command_type.strip()
+        if command_type == "":
+            return {
+                "success": False,
+                "errorCode": "invalid_command_type",
+                "errorMessage": "CommandType is required.",
+            }
+
         payload = _safe_json_object(command.payload_json)
 
         def payload_string(camel_key: str, pascal_key: str) -> str | None:
@@ -190,7 +197,7 @@ class RuntimeControlSyncService:
                 return value
             return None
 
-        if command.command_type == "set_schedule_enabled":
+        if command_type == "set_schedule_enabled":
             job_name = payload_string("jobName", "JobName")
             enabled = payload_bool("enabled", "Enabled")
             if not job_name or enabled is None:
@@ -208,7 +215,7 @@ class RuntimeControlSyncService:
                 "errorMessage": "Scheduled job not found",
             }
 
-        if command.command_type == "run_schedule_now":
+        if command_type == "run_schedule_now":
             job_name = payload_string("jobName", "JobName")
             if not job_name:
                 return {
@@ -225,7 +232,7 @@ class RuntimeControlSyncService:
                 "errorMessage": "Scheduled job not found",
             }
 
-        if command.command_type == "update_schedule_cron":
+        if command_type == "update_schedule_cron":
             job_name = payload_string("jobName", "JobName")
             cron_expression = payload_string("cronExpression", "CronExpression")
             time_zone = payload_string("timeZone", "TimeZone")
@@ -249,7 +256,7 @@ class RuntimeControlSyncService:
         return {
             "success": False,
             "errorCode": "unsupported_command_type",
-            "errorMessage": f"Unsupported command type '{command.command_type}'",
+            "errorMessage": f"Unsupported command type '{command_type}'",
         }
 
     async def _post_with_retry(self, payload_json: str) -> HttpResponseData | None:
@@ -282,7 +289,15 @@ class RuntimeControlSyncService:
             if 200 <= response.status < 300:
                 return response
             if response.status in {401, 403}:
-                _logger.warning("Runtime-control authorization failed with status %s", response.status)
+                snippet = _response_snippet(response.body_text)
+                if snippet:
+                    _logger.warning(
+                        "Runtime-control authorization failed with status %s: %s",
+                        response.status,
+                        snippet,
+                    )
+                else:
+                    _logger.warning("Runtime-control authorization failed with status %s", response.status)
                 return None
             if not is_transient_status(response.status) or attempt >= max_attempts:
                 _logger.warning("Runtime-control sync rejected with status %s", response.status)
@@ -326,7 +341,6 @@ class RuntimeControlSyncService:
     @staticmethod
     def parse_response(body: str) -> list[RuntimeCommandEnvelope] | None:
         parsed = _safe_json_object(body)
-        validate_runtime_control_sync_response(parsed)
         commands_raw = parsed.get("commands")
         if commands_raw is None:
             commands_raw = parsed.get("Commands")
@@ -344,7 +358,7 @@ class RuntimeControlSyncService:
             issued_at = _pick_datetime(item, "issuedAtUtc", "IssuedAtUtc") or datetime.now(tz=UTC)
             expires_at = _pick_datetime(item, "expiresAtUtc", "ExpiresAtUtc", required=False)
 
-            if not command_id or command_type not in _SUPPORTED_COMMAND_TYPES:
+            if not command_id or command_type is None:
                 continue
 
             commands.append(
