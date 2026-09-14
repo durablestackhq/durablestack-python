@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import platform
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -66,6 +67,10 @@ def _normalize_runtime_version(value: str) -> str:
 
 def _default_runtime_name(runtime_version: str) -> str:
     return f"Python {_normalize_runtime_version(runtime_version)}"
+
+
+def _default_python_runtime_version() -> str:
+    return platform.python_version()
 
 
 def _build_idempotency_key(worker_name: str, sequence: int) -> str:
@@ -271,17 +276,18 @@ def create_ingestion_eventing(
     options: DurableStackOptions,
     http_post: HttpPost | None = None,
     runtime_name: str | None = None,
-    runtime_version: str = "unknown",
+    runtime_version: str | None = None,
 ) -> tuple[IngestionDurableStackEventSink, IngestionEventSyncService]:
     """Create sink + service pair used by runtime host."""
 
     sink = IngestionDurableStackEventSink()
-    effective_runtime_name = runtime_name or _default_runtime_name(runtime_version)
+    effective_runtime_version = _normalize_runtime_version(runtime_version or _default_python_runtime_version())
+    effective_runtime_name = runtime_name or _default_runtime_name(effective_runtime_version)
     service = IngestionEventSyncService(
         sink=sink,
         options=options,
         http_post=http_post or default_http_post(),
         runtime_name=effective_runtime_name,
-        runtime_version=_normalize_runtime_version(runtime_version),
+        runtime_version=effective_runtime_version,
     )
     return sink, service
