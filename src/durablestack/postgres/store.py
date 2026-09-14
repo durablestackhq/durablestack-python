@@ -50,6 +50,11 @@ def _to_utc_or_none(value: Any) -> datetime | None:
     return value.astimezone(UTC)
 
 
+def _positive_lease_interval(value: timedelta) -> timedelta:
+    seconds = max(1, int(value.total_seconds()))
+    return timedelta(seconds=seconds)
+
+
 def _is_row_count_one(result: Any) -> bool:
     text = cast(str, result)
     return text.endswith("1")
@@ -206,7 +211,7 @@ class PostgresDurableJobStore:
             max(1, int(batch_size)),
             worker_name,
             ensure_utc(now_utc),
-            f"{max(1, int(lease_duration.total_seconds()))} seconds",
+            _positive_lease_interval(lease_duration),
         )
         return [_row_to_run(row) for row in rows]
 
@@ -230,7 +235,7 @@ class PostgresDurableJobStore:
             uuid.UUID(run_id),
             worker_name,
             ensure_utc(now_utc),
-            f"{max(1, int(lease_duration.total_seconds()))} seconds",
+            _positive_lease_interval(lease_duration),
         )
         return _is_row_count_one(result)
 
@@ -620,7 +625,7 @@ class PostgresDurableJobStore:
             command_id,
             ensure_utc(recorded_at_utc),
             worker_name,
-            f"{max(1, int(lease_duration.total_seconds()))} seconds",
+            _positive_lease_interval(lease_duration),
         )
         return result is not None
 
