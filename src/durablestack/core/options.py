@@ -35,7 +35,7 @@ class EventingOptions:
     tenant_id: str | None = None
     client_secret: str | None = None
     ingestion_api_base_url: str = "https://api.durablestack.com"
-    ingestion_path: str = "/v1/runtime/telemetry/ingest"
+    ingestion_path: str = "/v1/events/batch"
     ingestion_flush_interval: timedelta = timedelta(seconds=5)
     ingestion_max_batch_size: int = 200
     ingestion_max_retry_attempts: int = 5
