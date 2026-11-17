@@ -21,8 +21,10 @@ def _migration_lock_name(table_prefix: str | None) -> str:
 
 
 def _lock_key(name: str) -> int:
+    # pg_advisory_xact_lock takes bigint (signed int64). A unsigned 64-bit
+    # digest overflowed for some prefixes, including the default durable_stack.
     digest = hashlib.sha256(name.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], byteorder="big", signed=False)
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
 async def migrate_postgres(pool: asyncpg.Pool, table_prefix: str | None) -> None:
