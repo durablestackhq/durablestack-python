@@ -51,8 +51,12 @@ def _to_utc_or_none(value: Any) -> datetime | None:
 
 
 def _positive_lease_interval(value: timedelta) -> timedelta:
-    seconds = max(1, int(value.total_seconds()))
-    return timedelta(seconds=seconds)
+    # Keep the requested duration, including sub-second leases used by the
+    # provider contract tests. A 1-second floor hid expirations at 50-75ms
+    # and made Postgres diverge from the other providers.
+    if value <= timedelta(0):
+        return timedelta(seconds=1)
+    return value
 
 
 def _is_row_count_one(result: Any) -> bool:

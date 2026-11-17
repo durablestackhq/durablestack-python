@@ -80,4 +80,4 @@ runtime = create_durable_stack(
 
 - Homepage: https://durablestack.com
 - Documentation: https://docs.durablestack.com
-- Source: https://github.com/durablestack/durablestack-python
+- Source: https://github.com/durablestackhq/durablestack-python
